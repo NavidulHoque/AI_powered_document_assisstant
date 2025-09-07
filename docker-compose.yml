@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   postgres:
-    image: postgres:16
+    image: ankane/pgvector:latest
     restart: always
     ports:
       - 5433:5432
@@ -11,7 +11,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: appointment_system
+      POSTGRES_DB: document
 
   redis:
     image: redis:7
