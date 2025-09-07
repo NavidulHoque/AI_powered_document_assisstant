@@ -1,18 +1,18 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+// src/mcp/mcp.service.ts
+import { Injectable } from '@nestjs/common';
 import { createMcpServer } from 'mcp-node';
 import { QueryService } from '../query/query.service';
 import { createSearchTool } from './tools/search.tool';
 
 @Injectable()
-export class McpService implements OnModuleInit {
+export class McpService {
   constructor(private queryService: QueryService) {}
 
-  async onModuleInit() {
+  // create server factory but do not auto-listen from Nest
+  createServer() {
     const server = createMcpServer({
       tools: [createSearchTool(this.queryService)],
     });
-
-    server.listen(4000); // MCP server port
-    console.log('✅ MCP server running on port 4000');
+    return server;
   }
 }
