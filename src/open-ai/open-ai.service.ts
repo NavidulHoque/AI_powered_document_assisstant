@@ -25,7 +25,9 @@ export class OpenAiService {
         input,
       });
       return resp.data[0].embedding;
-    } catch (e) {
+    } 
+    
+    catch (e) {
       this.logger.error('Embedding failed', (e as Error).stack);
       throw new InternalServerErrorException('OpenAI embedding failed');
     }

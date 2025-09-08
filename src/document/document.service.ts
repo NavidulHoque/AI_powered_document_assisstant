@@ -1,6 +1,5 @@
-import { BadRequestException, Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
-import { IVectorStore } from 'src/vector/ivectorstore.interface';
 import { OpenAiService } from 'src/open-ai/open-ai.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 
@@ -12,21 +11,15 @@ export class DocumentService {
     private readonly cloudinary: CloudinaryService,
     private readonly prisma: PrismaService,
     private readonly openAi: OpenAiService,
-    @Inject('IVectorStore') private vectorStore: IVectorStore
-  ) { }
+  ) {}
 
-  async uploadAndIndexFiles(
-    files: Express.Multer.File[],
-    userId: string,
-  ) {
+  async uploadAndIndexFiles(files: Express.Multer.File[], userId: string) {
     if (!files?.length) {
       throw new BadRequestException('No files uploaded');
     }
 
     const results = await Promise.all(
-      files.map(file =>
-        this.uploadAndIndexFile(file, userId, file.originalname)
-      ),
+      files.map(file => this.uploadAndIndexFile(file, userId, file.originalname)),
     );
 
     return {
@@ -36,11 +29,7 @@ export class DocumentService {
     };
   }
 
-  private async uploadAndIndexFile(
-    file: Express.Multer.File,
-    userId: string,
-    title: string,
-  ) {
+  private async uploadAndIndexFile(file: Express.Multer.File, userId: string, title: string) {
     if (!file || !file.buffer) {
       throw new BadRequestException('Invalid file upload');
     }
@@ -48,15 +37,15 @@ export class DocumentService {
     try {
       // 1) Upload to Cloudinary
       const uploadResult = await this.cloudinary.upload(
-        file.buffer,           // file buffer
-        title,                 // use title or original filename as public_id
-        'documents',           // folder
-        'auto',                // resource_type auto-detect
+        file.buffer,
+        title, // use title as public_id
+        'documents',
+        'auto',
       );
 
       // 2) Extract text for embedding
       const textForEmbedding =
-        (file.mimetype && file.mimetype.startsWith('text'))
+        file.mimetype?.startsWith('text')
           ? file.buffer.toString('utf8').slice(0, 20000)
           : `${title} ${uploadResult.secure_url}`;
 
@@ -72,18 +61,24 @@ export class DocumentService {
         },
       });
 
-      // 5) Index vector
-      await this.vectorStore.index({
-        id: document.id,
+      // 5) Save chunk directly in DB 
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO "Chunk" (id, content, embedding, "documentId") 
+         VALUES (gen_random_uuid(), $1, $2, $3)`,
+        textForEmbedding,
         embedding,
-        metadata: { documentId: document.id, content: textForEmbedding },
-      });
+        document.id,
+      );
 
       return { document, uploadResult };
-    }
-
+    } 
+    
     catch (error) {
-      this.logger.error(`Failed to upload and index file, Reason: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to upload and index file, Reason: ${error.message}`,
+        error.stack,
+      );
+      
       throw new InternalServerErrorException('Failed to upload and index file');
     }
   }

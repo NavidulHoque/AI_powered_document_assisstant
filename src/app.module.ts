@@ -8,7 +8,6 @@ import { QueryModule } from './query/query.module';
 import { McpModule } from './mcp/mcp.module';
 import { DocumentModule } from './document/document.module';
 import { OpenAiModule } from './open-ai/open-ai.module';
-import { VectorModule } from './vector/vector.module';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 
@@ -26,8 +25,7 @@ import { JwtModule } from '@nestjs/jwt';
     QueryModule,
     McpModule,
     DocumentModule,
-    OpenAiModule,
-    VectorModule
+    OpenAiModule
   ],
   controllers: [AppController],
   providers: [AppService],
