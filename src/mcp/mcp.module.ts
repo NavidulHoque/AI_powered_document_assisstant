@@ -4,6 +4,6 @@ import { QueryModule } from '../query/query.module';
 
 @Module({
   imports: [QueryModule],
-  providers: [McpService],
+  providers: [McpService]
 })
 export class McpModule {}

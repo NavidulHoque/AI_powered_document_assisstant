@@ -1,51 +1,89 @@
-import { Injectable } from '@nestjs/common';
-import { OpenAI } from 'openai';
-import { VectorStore } from 'src/common/vector/vector.store';
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { IVectorStore } from 'src/vector/ivectorstore.interface';
+import { OpenAiService } from 'src/open-ai/open-ai.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class DocumentService {
-  private openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  private readonly logger = new Logger(DocumentService.name);
 
-  constructor(private readonly vectorStore: VectorStore) {}
+  constructor(
+    private readonly cloudinary: CloudinaryService,
+    private readonly prisma: PrismaService,
+    private readonly openAi: OpenAiService,
+    @Inject('IVectorStore') private vectorStore: IVectorStore
+  ) { }
 
-  async processDocument(text: string, docId: string) {
-    const chunks = this.chunkText(text, 500); // split into 500 token chunks
-    for (const chunk of chunks) {
-      const embedding = await this.openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: chunk,
+  async uploadAndIndexFiles(
+    files: Express.Multer.File[],
+    userId: string,
+  ) {
+    if (!files?.length) {
+      throw new BadRequestException('No files uploaded');
+    }
+
+    const results = await Promise.all(
+      files.map(file =>
+        this.uploadAndIndexFile(file, userId, file.originalname)
+      ),
+    );
+
+    return {
+      documents: results.map(result => result.document),
+      uploads: results.map(result => result.uploadResult),
+    };
+  }
+
+  private async uploadAndIndexFile(
+    file: Express.Multer.File,
+    userId: string,
+    title: string,
+  ) {
+    if (!file || !file.buffer) {
+      throw new BadRequestException('Invalid file upload');
+    }
+
+    try {
+      // 1) Upload to Cloudinary
+      const uploadResult = await this.cloudinary.upload(
+        file.buffer,           // file buffer
+        title,                 // use title or original filename as public_id
+        'documents',           // folder
+        'auto',                // resource_type auto-detect
+      );
+
+      // 2) Extract text for embedding
+      const textForEmbedding =
+        (file.mimetype && file.mimetype.startsWith('text'))
+          ? file.buffer.toString('utf8').slice(0, 20000)
+          : `${title} ${uploadResult.secure_url}`;
+
+      // 3) Create embedding
+      const embedding = await this.openAi.embedding(textForEmbedding);
+
+      // 4) Save Document in DB
+      const document = await this.prisma.document.create({
+        data: {
+          title,
+          userId,
+          url: uploadResult.secure_url,
+        },
       });
-      await this.vectorStore.insertEmbedding(docId, chunk, embedding.data[0].embedding);
+
+      // 5) Index vector
+      await this.vectorStore.index({
+        id: document.id,
+        embedding,
+        metadata: { documentId: document.id, content: textForEmbedding },
+      });
+
+      return { document, uploadResult };
     }
-    return { message: 'Document processed with AI embeddings' };
-  }
 
-  async answerQuestion(docId: string, question: string) {
-    const embedding = await this.openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: question,
-    });
-
-    const results = await this.vectorStore.search(docId, embedding.data[0].embedding, 3);
-
-    const context = results.map(r => r.text).join('\n\n');
-
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant answering based on provided documents.' },
-        { role: 'user', content: `Question: ${question}\n\nContext:\n${context}` }
-      ],
-    });
-
-    return { answer: response.choices[0].message.content, sources: results };
-  }
-
-  private chunkText(text: string, size: number): string[] {
-    const chunks: string[] = [];
-    for (let i = 0; i < text.length; i += size) {
-      chunks.push(text.slice(i, i + size));
+    catch (error) {
+      this.logger.error(`Failed to upload and index file, Reason: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Failed to upload and index file');
     }
-    return chunks;
   }
 }

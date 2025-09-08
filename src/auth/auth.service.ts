@@ -252,7 +252,7 @@ export class AuthService {
         }
     }
 
-    private async findSessionById(sessionId: string, select: Record<string, any>) {
+    private async findSessionById(sessionId: string, select: Record<string, any>): Promise<Record<string, any>> {
         const session = await this.prisma.session.findUnique({
             where: { id: sessionId },
             select
@@ -307,14 +307,8 @@ export class AuthService {
             where: { email },
             select: {
                 id: true,
-                fullName: true,
                 email: true,
-                phone: true,
-                role: true,
-                password: true,
-                otp: true,
-                otpExpires: true,
-                isOtpVerified: true
+                password: true
             }
         });
 

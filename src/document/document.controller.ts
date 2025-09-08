@@ -1,19 +1,27 @@
-import { Controller, Post, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  UploadedFiles,
+  UseInterceptors,
+  Req,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
 import { multerOptions } from 'src/cloudinary/multer.config';
+import { User } from 'src/auth/decorators';
 
 @Controller('documents')
 export class DocumentController {
-  constructor(private readonly documentService: DocumentService) {}
+  constructor(private readonly documentService: DocumentService) { }
 
   @Post('upload')
-  @UseInterceptors(FilesInterceptor('files', 2, multerOptions))
-  async upload(@UploadedFiles() files: Express.Multer.File[]) {
-    for (const file of files) {
-      const type = file.mimetype.startsWith('video') ? 'video' : 'image';
-      await this.documentService.enqueueUploadJob(file.path, type);
-    }
-    return { message: 'Files queued for processing' };
+  @UseInterceptors(FilesInterceptor('files', 5, multerOptions)) // allow up to 5 files
+  upload(
+    @UploadedFiles() files: Express.Multer.File[],
+    @User("id") userId: string,
+  ) {
+    return this.documentService.uploadAndIndexFiles(files, userId);
   }
 }

@@ -1,18 +1,23 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { OpenAI } from 'openai';
-
-const logger = new Logger('OpenAiService');
+import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 @Injectable()
 export class OpenAiService {
+  private readonly logger = new Logger(OpenAiService.name);
+  private readonly OPENAI_API_KEY: string | undefined;
   private client: OpenAI;
 
-  constructor() {
-    if (!process.env.OPENAI_API_KEY) {
-      logger.error('Missing OPENAI_API_KEY');
+  constructor(private config: ConfigService) {
+    this.OPENAI_API_KEY = this.config.get<string>('OPENAI_API_KEY');
+
+    if (!this.OPENAI_API_KEY) {
+      this.logger.error('Missing OPENAI_API_KEY');
       throw new InternalServerErrorException('OpenAI API key not configured');
     }
-    this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    this.client = new OpenAI({ apiKey: this.OPENAI_API_KEY });
   }
 
   async embedding(input: string) {
@@ -23,12 +28,12 @@ export class OpenAiService {
       });
       return resp.data[0].embedding;
     } catch (e) {
-      logger.error('embedding failed', (e as Error).stack);
+      this.logger.error('embedding failed', (e as Error).stack);
       throw new InternalServerErrorException('OpenAI embedding failed');
     }
   }
 
-  async chatCompletion(messages: Array<{ role: string; content: string }>, model = 'gpt-4o-mini') {
+  async chatCompletion(messages: ChatCompletionMessageParam[], model = 'gpt-4o-mini') {
     try {
       const resp = await this.client.chat.completions.create({
         model,
@@ -36,7 +41,7 @@ export class OpenAiService {
       });
       return resp.choices?.[0]?.message?.content ?? '';
     } catch (e) {
-      logger.error('chat completion failed', (e as Error).stack);
+      this.logger.error('chat completion failed', (e as Error).stack);
       throw new InternalServerErrorException('OpenAI chat completion failed');
     }
   }

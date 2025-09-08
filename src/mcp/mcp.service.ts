@@ -1,4 +1,3 @@
-// src/mcp/mcp.service.ts
 import { Injectable } from '@nestjs/common';
 import { createMcpServer } from 'mcp-node';
 import { QueryService } from '../query/query.service';

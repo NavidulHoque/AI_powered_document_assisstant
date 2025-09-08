@@ -1,38 +1,114 @@
-import { Injectable } from '@nestjs/common';
-import { OpenAI } from 'openai';
+import { Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { IVectorStore } from 'src/vector/ivectorstore.interface';
+import { OpenAiService } from 'src/open-ai/open-ai.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+
+type SearchResultItem = {
+  id: string;               // chunk id
+  score: number;            // similarity score
+  snippet: string | null;   // short text from the matching chunk
+  document: {               // minimal doc metadata
+    id: string;
+    title: string;
+    url: string;
+  } | null;
+};
 
 @Injectable()
 export class QueryService {
-  private openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  private readonly logger = new Logger(QueryService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private openAi: OpenAiService,
+    @Inject('IVectorStore') private vectorStore: IVectorStore,
+  ) { }
 
-  async search(query: string) {
-    // Get query embedding
-    const embedding = await this.openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: query,
-    });
+  /**
+   * Indexes a document: creates embeddings and stores metadata+vector.
+   * Returns the created document record.
+   */
+  async indexDocument(options: { documentId?: string; userId: string; text: string; title?: string; url?: string }) {
+    const { documentId, userId, text, title, url } = options;
 
-    // Find similar chunks using pgvector cosine similarity
-    const chunks = await this.prisma.$queryRawUnsafe<any[]>(`
-      SELECT content
-      FROM "Chunk"
-      ORDER BY embedding <=> '[${embedding.data[0].embedding.join(',')}]'
-      LIMIT 5;
-    `);
+    try {
+      // 1) create embedding
+      const embedding = await this.openAi.embedding(text);
+      if (!embedding || !Array.isArray(embedding)) throw new Error('Empty embedding');
 
-    // Use retrieved chunks in RAG
-    const context = chunks.map(c => c.content).join('\n');
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful document assistant.' },
-        { role: 'user', content: `Context:\n${context}\n\nQuestion: ${query}` },
-      ],
-    });
+      // 2) create Document record (minimal schema: id, title, url, userId)
+      const doc = await this.prisma.document.create({
+        data: {
+          id: documentId,
+          userId,
+          title: title ?? 'Untitled Document',
+          url: url ?? '',
+        },
+      });
 
-    return completion.choices[0].message.content;
+      // 3) index into vector store (store content + documentId in metadata)
+      await this.vectorStore.index({
+        id: doc.id, // note: underlying store generates a chunk id; this value isn't relied on
+        embedding,
+        metadata: { documentId: doc.id, content: text },
+      });
+
+      return doc;
+    } catch (err) {
+      this.logger.error('Failed to index document', (err as Error).stack);
+      throw new InternalServerErrorException('Failed to index document');
+    }
+  }
+
+  /**
+   * Search: returns top-k results with snippet + linked document metadata.
+   * NOTE: Vector store returns CHUNK IDs; we resolve their parent documents here.
+   */
+  async search(query: string, topK = 5): Promise<SearchResultItem[]> {
+    try {
+      const qEmbedding = await this.openAi.embedding(query);
+      const hits = await this.vectorStore.search({ embedding: qEmbedding, topK });
+
+      if (!hits.length) return [];
+
+      // hits contain chunk IDs; fetch their document mapping
+      const chunkIds = hits.map(h => h.id);
+
+      const chunks = await this.prisma.chunk.findMany({
+        where: { id: { in: chunkIds } },
+        select: { id: true, documentId: true, content: true },
+      });
+
+      const chunkById = new Map(chunks.map(c => [c.id, c]));
+      const docIds = Array.from(new Set(chunks.map(c => c.documentId)));
+
+      const docs = docIds.length
+        ? await this.prisma.document.findMany({
+          where: { id: { in: docIds } },
+          select: { id: true, title: true, url: true },
+        })
+        : [];
+
+      const docById = new Map(docs.map(d => [d.id, d]));
+
+      // Preserve ranking order from hits and shape as { id, score, snippet, document }
+      const results: SearchResultItem[] = hits.map(h => {
+        const chunk = chunkById.get(h.id);
+        const doc = chunk ? docById.get(chunk.documentId) : null;
+
+        return {
+          id: h.id,
+          score: h.score,
+          // prefer vector-store-provided snippet; fall back to DB chunk content
+          snippet: (h.metadata as any)?.content ?? chunk?.content ?? null,
+          document: doc ? { id: doc.id, title: doc.title, url: doc.url } : null,
+        };
+      });
+
+      return results;
+    } catch (err) {
+      this.logger.error('Search failed', (err as Error).stack);
+      throw new InternalServerErrorException('Search failed');
+    }
   }
 }
