@@ -2,6 +2,7 @@ import { Inject, Injectable, InternalServerErrorException, Logger } from '@nestj
 import { IVectorStore } from 'src/vector/ivectorstore.interface';
 import { OpenAiService } from 'src/open-ai/open-ai.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { IndexDocumentDto, SearchQueryDto } from './dto';
 
 type SearchResultItem = {
   id: string;               // chunk id
@@ -28,8 +29,8 @@ export class QueryService {
    * Indexes a document: creates embeddings and stores metadata+vector.
    * Returns the created document record.
    */
-  async indexDocument(options: { documentId?: string; userId: string; text: string; title?: string; url?: string }) {
-    const { documentId, userId, text, title, url } = options;
+  async indexDocument(dto: IndexDocumentDto) {
+    const { documentId, userId, text, title, url } = dto;
 
     try {
       // 1) create embedding
@@ -53,9 +54,11 @@ export class QueryService {
         metadata: { documentId: doc.id, content: text },
       });
 
-      return doc;
-    } catch (err) {
-      this.logger.error('Failed to index document', (err as Error).stack);
+      return { message: 'Document indexed successfully', document: doc };
+    }
+
+    catch (error) {
+      this.logger.error(`Failed to index document, Reason: ${error.message}`, error.stack);
       throw new InternalServerErrorException('Failed to index document');
     }
   }
@@ -64,10 +67,13 @@ export class QueryService {
    * Search: returns top-k results with snippet + linked document metadata.
    * NOTE: Vector store returns CHUNK IDs; we resolve their parent documents here.
    */
-  async search(query: string, topK = 5): Promise<SearchResultItem[]> {
+  async search(dto: SearchQueryDto) {
+
+    const { query, topK } = dto;
+    
     try {
-      const qEmbedding = await this.openAi.embedding(query);
-      const hits = await this.vectorStore.search({ embedding: qEmbedding, topK });
+      const queryEmbedding = await this.openAi.embedding(query);
+      const hits = await this.vectorStore.search({ embedding: queryEmbedding, topK });
 
       if (!hits.length) return [];
 
@@ -105,8 +111,13 @@ export class QueryService {
         };
       });
 
-      return results;
-    } catch (err) {
+      return {
+        message: 'Search successful',
+        results
+      };
+    }
+
+    catch (err) {
       this.logger.error('Search failed', (err as Error).stack);
       throw new InternalServerErrorException('Search failed');
     }

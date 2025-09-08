@@ -1,5 +1,6 @@
 import { McpTool } from "mcp-node";
 import { QueryService } from "src/query/query.service";
+import { SearchQueryDto } from "src/query/dto/search-query.dto";
 
 export function createSearchTool(queryService: QueryService): McpTool {
   return {
@@ -15,8 +16,12 @@ export function createSearchTool(queryService: QueryService): McpTool {
       required: ["query"],
     },
     async execute({ query, topK }) {
-      // QueryService now already returns { id, score, snippet, document }
-      return await queryService.search(query, topK ?? 5);
+      // Wrap into DTO to match QueryService signature
+      const dto = new SearchQueryDto();
+      dto.query = query;
+      dto.topK = topK;
+
+      return await queryService.search(dto);
     },
   };
 }

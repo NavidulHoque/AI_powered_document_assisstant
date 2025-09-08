@@ -9,10 +9,27 @@ import { McpModule } from './mcp/mcp.module';
 import { DocumentModule } from './document/document.module';
 import { OpenAiModule } from './open-ai/open-ai.module';
 import { VectorModule } from './vector/vector.module';
+import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
-  imports: [AuthModule, PrismaModule, CloudinaryModule, QueryModule, McpModule, DocumentModule, OpenAiModule, VectorModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,   // makes ConfigService global
+    }),
+    JwtModule.register({
+      global: true,    // makes jwtService global
+    }),
+    AuthModule,
+    PrismaModule,
+    CloudinaryModule,
+    QueryModule,
+    McpModule,
+    DocumentModule,
+    OpenAiModule,
+    VectorModule
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

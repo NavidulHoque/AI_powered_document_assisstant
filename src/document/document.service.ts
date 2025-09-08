@@ -30,6 +30,7 @@ export class DocumentService {
     );
 
     return {
+      message: 'Files uploaded and indexed successfully',
       documents: results.map(result => result.document),
       uploads: results.map(result => result.uploadResult),
     };

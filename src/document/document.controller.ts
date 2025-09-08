@@ -2,17 +2,17 @@ import {
   Controller,
   Post,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
-  Req,
-  BadRequestException,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
 import { multerOptions } from 'src/cloudinary/multer.config';
 import { User } from 'src/auth/decorators';
+import { AuthGuard } from 'src/auth/guard';
 
 @Controller('documents')
+@UseGuards(AuthGuard)
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) { }
 

@@ -6,17 +6,15 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 @Injectable()
 export class OpenAiService {
   private readonly logger = new Logger(OpenAiService.name);
-  private readonly OPENAI_API_KEY: string | undefined;
+  private readonly OPENAI_API_KEY: string;
   private client: OpenAI;
 
   constructor(private config: ConfigService) {
-    this.OPENAI_API_KEY = this.config.get<string>('OPENAI_API_KEY');
-
+    this.OPENAI_API_KEY = this.config.get<string>('OPENAI_API_KEY')!;
     if (!this.OPENAI_API_KEY) {
       this.logger.error('Missing OPENAI_API_KEY');
       throw new InternalServerErrorException('OpenAI API key not configured');
     }
-
     this.client = new OpenAI({ apiKey: this.OPENAI_API_KEY });
   }
 
@@ -28,12 +26,12 @@ export class OpenAiService {
       });
       return resp.data[0].embedding;
     } catch (e) {
-      this.logger.error('embedding failed', (e as Error).stack);
+      this.logger.error('Embedding failed', (e as Error).stack);
       throw new InternalServerErrorException('OpenAI embedding failed');
     }
   }
 
-  async chatCompletion(messages: ChatCompletionMessageParam[], model = 'gpt-4o-mini') {
+  async chatCompletion(messages: ChatCompletionMessageParam[], model = 'gpt-5-mini') {
     try {
       const resp = await this.client.chat.completions.create({
         model,
@@ -41,7 +39,7 @@ export class OpenAiService {
       });
       return resp.choices?.[0]?.message?.content ?? '';
     } catch (e) {
-      this.logger.error('chat completion failed', (e as Error).stack);
+      this.logger.error('Chat completion failed', (e as Error).stack);
       throw new InternalServerErrorException('OpenAI chat completion failed');
     }
   }
